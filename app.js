@@ -39,7 +39,8 @@ app.use(passport.session());
 const userSchema = new mongoose.Schema({
     email: String,
     password: String,
-    googleId: String  //Ou mongoose db will check the google id and if it exits, user will log in without mongoose creating a new user db.//
+    googleId: String,  //Our mongoose db will check the google id and if it exits, user will log in without mongoose creating a new user db.//
+    secret: String
 });
 
 userSchema.plugin(passportLocalMongoose);// This is what we'll use to hash and salt our passwords and save the users into mongodb database//
@@ -103,8 +104,21 @@ app.get("/register", function (req, res) {
 });
 
 app.get("/secrets", function (req, res) {
+    //($ne:null) is a mongo query for "not equal to null"
+    User.find({ "secret": {$ne: null}}, function (err, foundUsers) { 
+        if (err) {
+            console.log(err);
+        } else {
+            if (foundUsers) {
+                res.render("secrets", { usersWithSecrets: foundUsers });
+            }
+        }
+    });
+});
+
+app.get("/submit", function (req, res) {
     if (req.isAuthenticated()) {
-        res.render("secrets");
+        res.render("submit");
     } else {
         res.redirect("/login");
     }
@@ -151,6 +165,24 @@ app.post("/login", function (req, res) {
     });
 });
 
+app.post("/submit", function (req, res) {
+    const submittedSecret = req.body.secret;
+
+    console.log(req.user.id);
+
+    User.findById(req.user.id, function (err, foundUser) {
+        if (err) {
+            console.log(err)
+        } else {
+            if (foundUser) {
+                foundUser.secret = submittedSecret;
+                foundUser.save(function(){
+                    res.redirect("/secrets");
+                });
+            }
+        }
+    });
+});
                     //LOCAL SERVER CONNECTION//
 
 app.listen(3000, function () {
