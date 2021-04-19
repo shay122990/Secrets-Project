@@ -9,7 +9,8 @@ const mongoose = require("mongoose");//Mongoose is an Object Data Modeling (ODM)
 const session = require("express-session");//Storing session data,also offers ways to secure your cookies.
 const passport = require("passport");//Passport is Express-compatible authentication middleware for Node.js.Passport's sole purpose is to authenticate requests, which it does through an extensible set of plugins known as strategies
 const passportLocalMongoose = require("passport-local-mongoose");//Passport-Local Mongoose is a Mongoose plugin that simplifies building username and password login with Passport.//
-
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const findOrCreate = require("mongoose-findorcreate");// This package allows google passport to find or create user//
 
                        // CONNECTING TO MODULES//
 
@@ -37,20 +38,42 @@ app.use(passport.session());
 
 const userSchema = new mongoose.Schema({
     email: String,
-    password: String
+    password: String,
+    googleId: String  //Ou mongoose db will check the google id and if it exits, user will log in without mongoose creating a new user db.//
 });
 
 userSchema.plugin(passportLocalMongoose);// This is what we'll use to hash and salt our passwords and save the users into mongodb database//
-
+userSchema.plugin(findOrCreate);//Now we can tap into our user Model and call the findOrCreate function/
 
 const User = new mongoose.model("User", userSchema);
 
 passport.use(User.createStrategy());
-// Only necessary when we're using sessions//
-passport.serializeUser(User.serializeUser());// creates a cookie and stuffs users info inside the cookie//
-passport.deserializeUser(User.deserializeUser());// allows passport to crumble the cookie and discover the msg inside, like who the user is and authenticate that user.//
+//only the user ID is serialized to the session, keeping the amount of data stored within the session small.//
+passport.serializeUser(function(user, done) {
+    done(null, user.id);
+  });
+  //When subsequent requests are received, this ID is used to find the user, which will be restored to req.user//
+  passport.deserializeUser(function(id, done) {
+    User.findById(id, function(err, user) {
+      done(err, user);
+    });
+  });
 
+                             // USING GOOGLE OAUTH //
 
+passport.use(new GoogleStrategy({
+    clientID: process.env.CLIENT_ID,
+    clientSecret: process.env.CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/google/secrets",
+    userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
+  },
+    function (accessToken, refreshToken, profile, cb) {
+        console.log(profile);
+    User.findOrCreate({ googleId: profile.id }, function (err, user) {
+      return cb(err, user);
+    });
+  }
+));
 
                              //GET REQUESTS TO ROUTES//
 
@@ -59,6 +82,17 @@ passport.deserializeUser(User.deserializeUser());// allows passport to crumble t
 app.get("/", function (req, res) {
     res.render("home")
 });
+
+app.get("/auth/google", passport.authenticate("google", {
+    scope: ["profile"]
+}));
+
+  app.get("/auth/google/secrets", 
+  passport.authenticate("google", { failureRedirect: "/login" }),
+  function(req, res) {
+    // Successful authentication, redirect secrets page.
+    res.redirect("/secrets");
+  });
 
 app.get("/login", function (req, res) {
     res.render("login")
@@ -73,8 +107,9 @@ app.get("/secrets", function (req, res) {
         res.render("secrets");
     } else {
         res.redirect("/login");
-    };
+    }
 });
+
 
 app.get("/logout", function (req, res) {
     req.logout();
@@ -116,13 +151,11 @@ app.post("/login", function (req, res) {
     });
 });
 
-
-
-
-
-
                     //LOCAL SERVER CONNECTION//
 
 app.listen(3000, function () {
     console.log("Server is running on port 3000")
 });
+
+
+
