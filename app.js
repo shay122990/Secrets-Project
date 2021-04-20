@@ -11,7 +11,7 @@ const passport = require("passport");//Passport is Express-compatible authentica
 const passportLocalMongoose = require("passport-local-mongoose");//Passport-Local Mongoose is a Mongoose plugin that simplifies building username and password login with Passport.//
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const findOrCreate = require("mongoose-findorcreate");// This package allows google passport to find or create user//
-
+const FacebookStrategy = require("passport-facebook").Strategy;
                        // CONNECTING TO MODULES//
 
                        
@@ -40,11 +40,12 @@ const userSchema = new mongoose.Schema({
     email: String,
     password: String,
     googleId: String,  //Our mongoose db will check the google id and if it exits, user will log in without mongoose creating a new user db.//
-    secret: String
+    secret: String,
+    facebookId: String,
 });
-
-userSchema.plugin(passportLocalMongoose);// This is what we'll use to hash and salt our passwords and save the users into mongodb database//
-userSchema.plugin(findOrCreate);//Now we can tap into our user Model and call the findOrCreate function/
+//Email needed to be identified as the username so mongodb wont create another user.
+userSchema.plugin(passportLocalMongoose, {emailField: "username"});
+userSchema.plugin(findOrCreate);
 
 const User = new mongoose.model("User", userSchema);
 
@@ -75,6 +76,22 @@ passport.use(new GoogleStrategy({
     });
   }
 ));
+                            //USING FACEBOOK OAUTH//
+
+   passport.use(new FacebookStrategy({
+    clientID: process.env.FACEBOOK_APP_ID,
+    clientSecret: process.env.FACEBOOK_APP_SECRET,
+    callbackURL: "http://localhost:3000/auth/facebook/secrets"
+  },
+  function(accessToken, refreshToken, profile, cb) {
+    console.log(profile);
+    User.findOrCreate({
+      facebookId: profile.id
+    }, function(err, user) {
+      return cb(err, user);
+    });
+  }
+));                         
 
                              //GET REQUESTS TO ROUTES//
 
@@ -88,12 +105,25 @@ app.get("/auth/google", passport.authenticate("google", {
     scope: ["profile"]
 }));
 
-  app.get("/auth/google/secrets", 
+app.get("/auth/google/secrets", 
   passport.authenticate("google", { failureRedirect: "/login" }),
   function(req, res) {
     // Successful authentication, redirect secrets page.
     res.redirect("/secrets");
-  });
+      });
+
+  
+app.get("/auth/facebook",
+    passport.authenticate("facebook",{ scope: 'public_profile'})//important to set permission scope, otherwise facebook login won't work
+    );
+
+app.get("/auth/facebook/secrets",
+    passport.authenticate("facebook", { failureRedirect: "/login" }),
+    function(req, res) {
+      // Successful authentication, redirect home.
+      res.redirect("/secrets");
+        });
+    
 
 app.get("/login", function (req, res) {
     res.render("login")
@@ -115,6 +145,7 @@ app.get("/secrets", function (req, res) {
         }
     });
 });
+
 
 app.get("/submit", function (req, res) {
     if (req.isAuthenticated()) {
